@@ -63,8 +63,8 @@ export const schoolConfig: SchoolConfig = {
   },
   reelUrl: "https://www.facebook.com/reel/25183397998019434",
   map: {
-    lat: 40.8472,
-    lon: 43.8741,
+    lat: 40.650111,
+    lon: 44.040903,
     bboxRadius: 0.02,
   },
   assets: {
@@ -87,9 +87,9 @@ export const schoolConfig: SchoolConfig = {
     en: "Official information portal",
   },
   address: {
-    hy: "",
-    ru: "",
-    en: "",
+    hy: "ՀՀ Շիրակի մարզի Արևշատ համայնք, փողոց 8, շենք 5",
+    ru: "Республика Армения, Ширакская область, с. Аревшат, ул. 8, дом 5",
+    en: "Arevshati community, Shirak Province, Armenia, Street 8, Building 5",
   },
   region: {
     hy: "Շիրակի մարզ",
