@@ -14,7 +14,6 @@ const ALLOWED_EXTENSIONS = [
   ".txt", ".csv", ".zip",
 ];
 
-// Magic bytes per extension — guards against renamed malicious files
 function hasValidMagicBytes(ext: string, buf: Buffer): boolean {
   switch (ext) {
     case ".pdf":
@@ -35,16 +34,13 @@ function hasValidMagicBytes(ext: string, buf: Buffer): boolean {
     case ".docx":
     case ".xlsx":
     case ".pptx":
-      // Modern Office formats are ZIP archives
       return buf[0] === 0x50 && buf[1] === 0x4b;
     case ".doc":
     case ".xls":
     case ".ppt":
-      // Old Office formats (Compound Document)
       return buf[0] === 0xd0 && buf[1] === 0xcf;
     case ".txt":
     case ".csv":
-      // Plain text — no fixed magic bytes, any content is acceptable
       return true;
     default:
       return false;
@@ -83,26 +79,46 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "File content does not match its extension" }, { status: 400 });
   }
 
+  const fileName = safeFileName(file.name);
+
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    const { put } = await import("@vercel/blob");
+    const blob = await put(`uploads/${fileName}`, buffer, {
+      access: "public",
+      contentType: file.type || "application/octet-stream",
+    });
+    return NextResponse.json({ name: file.name, href: blob.url, size: file.size });
+  }
+
+  // Local dev: write to public/uploads
   const uploadDir = path.join(process.cwd(), "public", "uploads");
   await mkdir(uploadDir, { recursive: true });
-
-  const fileName = safeFileName(file.name);
   await writeFile(path.join(uploadDir, fileName), buffer);
-
-  return NextResponse.json({
-    name: file.name,
-    href: `/uploads/${fileName}`,
-    size: file.size,
-  });
+  return NextResponse.json({ name: file.name, href: `/uploads/${fileName}`, size: file.size });
 }
 
-// DELETE /api/upload?href=/uploads/filename.pdf
 export async function DELETE(request: NextRequest) {
   const authError = await requireAuth();
   if (authError) return authError;
 
   const href = request.nextUrl.searchParams.get("href");
-  if (!href || !href.startsWith("/uploads/")) {
+  if (!href) {
+    return NextResponse.json({ error: "Invalid href" }, { status: 400 });
+  }
+
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    // href is a full Vercel Blob URL
+    const { del } = await import("@vercel/blob");
+    try {
+      await del(href);
+    } catch {
+      // Already deleted — treat as success
+    }
+    return NextResponse.json({ ok: true });
+  }
+
+  // Local dev: href is /uploads/filename
+  if (!href.startsWith("/uploads/")) {
     return NextResponse.json({ error: "Invalid href" }, { status: 400 });
   }
 

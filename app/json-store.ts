@@ -2,18 +2,49 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 
-/**
- * Атомарное чтение/запись JSON-файла как единого источника данных.
- *
- * - Запись идёт во временный файл, затем атомарно переименовывается
- *   в целевой → процесс не может оставить файл «полуизменённым».
- * - На уровне модуля держим очередь промисов по пути файла: пока
- *   предыдущая запись/чтение не закончилось, следующая ждёт.
- *   Это спасает от race condition «read-modify-write».
- */
+export interface JsonStore<T> {
+  read(): Promise<T>;
+  write(value: T): Promise<void>;
+  update(mutator: (current: T) => T | Promise<T>): Promise<T>;
+}
+
+// ---- Upstash Redis implementation (production) -----------------------
+
+function createRedisStore<T>(key: string, fallback: T): JsonStore<T> {
+  async function getRedis() {
+    const { Redis } = await import("@upstash/redis");
+    return new Redis({
+      url: process.env.UPSTASH_REDIS_REST_URL!,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+    });
+  }
+
+  async function read(): Promise<T> {
+    const redis = await getRedis();
+    const value = await redis.get<T>(key);
+    return value ?? fallback;
+  }
+
+  async function write(value: T): Promise<void> {
+    const redis = await getRedis();
+    await redis.set(key, value);
+  }
+
+  return {
+    read,
+    write,
+    update: async (mutator) => {
+      const current = await read();
+      const next = await mutator(current);
+      await write(next);
+      return next;
+    },
+  };
+}
+
+// ---- File-based implementation (local dev) ----------------------------
 
 const dataDir = path.join(process.cwd(), "data");
-
 const locks = new Map<string, Promise<unknown>>();
 
 function withLock<T>(filePath: string, task: () => Promise<T>): Promise<T> {
@@ -33,13 +64,7 @@ async function atomicWrite(filePath: string, contents: string): Promise<void> {
   await rename(tmp, filePath);
 }
 
-export interface JsonStore<T> {
-  read(): Promise<T>;
-  write(value: T): Promise<void>;
-  update(mutator: (current: T) => T | Promise<T>): Promise<T>;
-}
-
-export function createJsonStore<T>(fileName: string, fallback: T): JsonStore<T> {
+function createFileStore<T>(fileName: string, fallback: T): JsonStore<T> {
   const filePath = path.join(dataDir, fileName);
 
   async function readRaw(): Promise<T> {
@@ -66,4 +91,14 @@ export function createJsonStore<T>(fileName: string, fallback: T): JsonStore<T> 
         return next;
       }),
   };
+}
+
+// ---- Public API -------------------------------------------------------
+
+export function createJsonStore<T>(fileName: string, fallback: T): JsonStore<T> {
+  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+    const key = fileName.replace(".json", "");
+    return createRedisStore<T>(key, fallback);
+  }
+  return createFileStore<T>(fileName, fallback);
 }

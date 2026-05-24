@@ -11,6 +11,9 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
+    "@upstash/redis": "^1.38.0",
+    "@vercel/blob": "^2.4.0",
+    "jose": "^6.2.3",
     "next": "^16.0.0",
     "next-intl": "^4.12.0",
     "react": "^19.0.0",
