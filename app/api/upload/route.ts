@@ -8,16 +8,6 @@ export const dynamic = "force-dynamic";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
-function getBlobToken(): string | undefined {
-  return process.env.BLOB_AREVSHAT_READ_WRITE_TOKEN ?? process.env.BLOB_READ_WRITE_TOKEN;
-}
-
-function blobOpts() {
-  return {
-    token: getBlobToken()!,
-    ...(process.env.BLOB_AREVSHAT_STORE_ID && { storeId: process.env.BLOB_AREVSHAT_STORE_ID }),
-  };
-}
 
 const ALLOWED_EXTENSIONS = [
   ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
@@ -92,19 +82,19 @@ export async function POST(request: NextRequest) {
 
   const fileName = safeFileName(file.name);
 
-  if (getBlobToken()) {
+  if (process.env.BLOB_AREVSHAT_STORE_ID) {
     const { put } = await import("@vercel/blob");
     const blob = await put(`uploads/${fileName}`, buffer, {
       access: "public",
       contentType: file.type || "application/octet-stream",
       allowOverwrite: true,
-      ...blobOpts(),
+      storeId: process.env.BLOB_AREVSHAT_STORE_ID,
     });
     return NextResponse.json({ name: file.name, href: blob.url, size: file.size });
   }
 
   if (process.env.NODE_ENV === "production") {
-    return NextResponse.json({ error: "Blob storage token not configured" }, { status: 503 });
+    return NextResponse.json({ error: "Blob store not configured" }, { status: 503 });
   }
 
   // Local dev: write to public/uploads
@@ -123,10 +113,10 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "Invalid href" }, { status: 400 });
   }
 
-  if (getBlobToken()) {
+  if (process.env.BLOB_AREVSHAT_STORE_ID) {
     const { del } = await import("@vercel/blob");
     try {
-      await del(href, { token: getBlobToken()! });
+      await del(href);
     } catch {
       // Already deleted — treat as success
     }
