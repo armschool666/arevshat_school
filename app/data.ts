@@ -1,4 +1,4 @@
-﻿export type SectionPage = {
+export type SectionPage = {
   slug: string;
   title: string;
   body: string;
@@ -136,8 +136,7 @@ export const sections: Section[] = [
     title: "Անձնակազմ",
     description:
       "Տնօրինություն, ուսուցչական կազմ, մասնագիտական փորձ, որակավորում և գիտական գործունեություն։",
-    image:
-      "https://images.unsplash.com/photo-1577896851231-70ef18881754?auto=format&fit=crop&w=1200&q=80",
+    image: "/usucichArevshat.jpg",
     links: [
       {
         slug: "leadership",
@@ -158,11 +157,13 @@ export const sections: Section[] = [
         slug: "qualification",
         title: "Որակավորում",
         body: "",
+        image: "/usucichArevshat.jpg",
       },
       {
         slug: "research",
         title: "Գիտական գործունեություն",
         body: "",
+        image: "/usucichArevshat.jpg",
       },
     ],
   },
