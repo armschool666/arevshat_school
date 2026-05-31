@@ -103,6 +103,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ name: file.name, href: blob.url, size: file.size });
   }
 
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "Blob storage token not configured" }, { status: 503 });
+  }
+
   // Local dev: write to public/uploads
   const uploadDir = path.join(process.cwd(), "public", "uploads");
   await mkdir(uploadDir, { recursive: true });
