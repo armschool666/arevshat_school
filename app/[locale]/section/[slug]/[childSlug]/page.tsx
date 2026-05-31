@@ -30,8 +30,8 @@ export default async function ChildSectionPage({
 
   return (
     <SiteShell>
-      <section className="subhero" style={page.slug === "leadership" ? { gridTemplateColumns: "1fr", minHeight: "220px" } : undefined}>
-        {page.slug !== "leadership" && (
+      <section className="subhero" style={page.slug === "leadership" || !section.image ? { gridTemplateColumns: "1fr", minHeight: "220px" } : undefined}>
+        {page.slug !== "leadership" && section.image && (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={section.image} alt={page.title} loading="lazy" />
         )}
