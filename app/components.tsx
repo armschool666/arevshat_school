@@ -5,6 +5,7 @@ import type { Locale } from "../i18n/routing";
 import { schoolConfig } from "../school.config";
 import { LanguageSwitcher } from "./lang-switcher";
 import { MobileMenu, type MobileNavItem } from "./mobile-menu";
+import { ScrollHeader } from "./scroll-header";
 
 // Navigation structure — hrefs are locale-independent; labels come from messages
 const NAV_ITEMS = [
@@ -144,7 +145,7 @@ export async function SiteShell({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-      <header className="site-header">
+      <ScrollHeader>
         <Link href="/" className="brand">
           <div className="brand-mark">
             <Image
@@ -185,7 +186,7 @@ export async function SiteShell({ children }: { children: React.ReactNode }) {
         </nav>
         <LanguageSwitcher />
         <MobileMenu items={navData} />
-      </header>
+      </ScrollHeader>
       <main>{children}</main>
       <footer className="footer">
         <div className="footer-main">

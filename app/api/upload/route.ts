@@ -86,6 +86,8 @@ export async function POST(request: NextRequest) {
     const blob = await put(`uploads/${fileName}`, buffer, {
       access: "public",
       contentType: file.type || "application/octet-stream",
+      allowOverwrite: true,
+      ...(process.env.BLOB_AREVSHAT_STORE_ID && { storeId: process.env.BLOB_AREVSHAT_STORE_ID }),
     });
     return NextResponse.json({ name: file.name, href: blob.url, size: file.size });
   }
