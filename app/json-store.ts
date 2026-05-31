@@ -10,17 +10,21 @@ export interface JsonStore<T> {
 
 // ---- Vercel Blob implementation (production) -------------------------
 
+function getBlobToken(): string | undefined {
+  return process.env.BLOB_AREVSHAT_READ_WRITE_TOKEN ?? process.env.BLOB_READ_WRITE_TOKEN;
+}
+
 function createBlobStore<T>(fileName: string, fallback: T): JsonStore<T> {
   const blobPath = `data/${fileName}`;
 
-  const storeOpts = () =>
-    process.env.BLOB_AREVSHAT_STORE_ID
-      ? { storeId: process.env.BLOB_AREVSHAT_STORE_ID }
-      : {};
+  const blobOpts = () => ({
+    token: getBlobToken()!,
+    ...(process.env.BLOB_AREVSHAT_STORE_ID && { storeId: process.env.BLOB_AREVSHAT_STORE_ID }),
+  });
 
   async function read(): Promise<T> {
     const { list } = await import("@vercel/blob");
-    const { blobs } = await list({ prefix: blobPath, ...storeOpts() });
+    const { blobs } = await list({ prefix: blobPath, ...blobOpts() });
     const blob = blobs.find((b) => b.pathname === blobPath);
     if (!blob) return fallback;
     const res = await fetch(blob.url, { cache: "no-store" });
@@ -34,7 +38,7 @@ function createBlobStore<T>(fileName: string, fallback: T): JsonStore<T> {
       access: "public",
       contentType: "application/json",
       allowOverwrite: true,
-      ...storeOpts(),
+      ...blobOpts(),
     });
   }
 
@@ -104,7 +108,7 @@ function createFileStore<T>(fileName: string, fallback: T): JsonStore<T> {
 // ---- Public API -------------------------------------------------------
 
 export function createJsonStore<T>(fileName: string, fallback: T): JsonStore<T> {
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
+  if (getBlobToken()) {
     return createBlobStore<T>(fileName, fallback);
   }
   return createFileStore<T>(fileName, fallback);

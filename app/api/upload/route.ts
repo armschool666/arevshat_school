@@ -8,6 +8,17 @@ export const dynamic = "force-dynamic";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
+function getBlobToken(): string | undefined {
+  return process.env.BLOB_AREVSHAT_READ_WRITE_TOKEN ?? process.env.BLOB_READ_WRITE_TOKEN;
+}
+
+function blobOpts() {
+  return {
+    token: getBlobToken()!,
+    ...(process.env.BLOB_AREVSHAT_STORE_ID && { storeId: process.env.BLOB_AREVSHAT_STORE_ID }),
+  };
+}
+
 const ALLOWED_EXTENSIONS = [
   ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
   ".jpg", ".jpeg", ".png", ".gif", ".webp",
@@ -81,13 +92,13 @@ export async function POST(request: NextRequest) {
 
   const fileName = safeFileName(file.name);
 
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
+  if (getBlobToken()) {
     const { put } = await import("@vercel/blob");
     const blob = await put(`uploads/${fileName}`, buffer, {
       access: "public",
       contentType: file.type || "application/octet-stream",
       allowOverwrite: true,
-      ...(process.env.BLOB_AREVSHAT_STORE_ID && { storeId: process.env.BLOB_AREVSHAT_STORE_ID }),
+      ...blobOpts(),
     });
     return NextResponse.json({ name: file.name, href: blob.url, size: file.size });
   }
@@ -108,11 +119,10 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "Invalid href" }, { status: 400 });
   }
 
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
-    // href is a full Vercel Blob URL
+  if (getBlobToken()) {
     const { del } = await import("@vercel/blob");
     try {
-      await del(href);
+      await del(href, { token: getBlobToken()! });
     } catch {
       // Already deleted — treat as success
     }
