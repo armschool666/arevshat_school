@@ -8,26 +8,34 @@ export interface JsonStore<T> {
   update(mutator: (current: T) => T | Promise<T>): Promise<T>;
 }
 
-// ---- Upstash Redis implementation (production) -----------------------
+// ---- Vercel Blob implementation (production) -------------------------
 
-function createRedisStore<T>(key: string, fallback: T): JsonStore<T> {
-  async function getRedis() {
-    const { Redis } = await import("@upstash/redis");
-    return new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL!,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-    });
-  }
+function createBlobStore<T>(fileName: string, fallback: T): JsonStore<T> {
+  const blobPath = `data/${fileName}`;
+
+  const storeOpts = () =>
+    process.env.BLOB_AREVSHAT_STORE_ID
+      ? { storeId: process.env.BLOB_AREVSHAT_STORE_ID }
+      : {};
 
   async function read(): Promise<T> {
-    const redis = await getRedis();
-    const value = await redis.get<T>(key);
-    return value ?? fallback;
+    const { list } = await import("@vercel/blob");
+    const { blobs } = await list({ prefix: blobPath, ...storeOpts() });
+    const blob = blobs.find((b) => b.pathname === blobPath);
+    if (!blob) return fallback;
+    const res = await fetch(blob.url, { cache: "no-store" });
+    if (!res.ok) return fallback;
+    return res.json() as Promise<T>;
   }
 
   async function write(value: T): Promise<void> {
-    const redis = await getRedis();
-    await redis.set(key, value);
+    const { put } = await import("@vercel/blob");
+    await put(blobPath, JSON.stringify(value), {
+      access: "public",
+      contentType: "application/json",
+      allowOverwrite: true,
+      ...storeOpts(),
+    });
   }
 
   return {
@@ -96,9 +104,8 @@ function createFileStore<T>(fileName: string, fallback: T): JsonStore<T> {
 // ---- Public API -------------------------------------------------------
 
 export function createJsonStore<T>(fileName: string, fallback: T): JsonStore<T> {
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-    const key = fileName.replace(".json", "");
-    return createRedisStore<T>(key, fallback);
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    return createBlobStore<T>(fileName, fallback);
   }
   return createFileStore<T>(fileName, fallback);
 }
