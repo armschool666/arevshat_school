@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
+import { revalidateTag, unstable_cache } from "next/cache";
 
 export interface JsonStore<T> {
   read(): Promise<T>;
@@ -13,16 +14,29 @@ export interface JsonStore<T> {
 function createBlobStore<T>(fileName: string, fallback: T): JsonStore<T> {
   const blobPath = `data/${fileName}`;
   const storeId = process.env.BLOB_AREVSHAT_STORE_ID!;
+  const cacheTag = `blob-json:${blobPath}`;
 
-  async function read(): Promise<T> {
-    const { list } = await import("@vercel/blob");
-    const { blobs } = await list({ prefix: blobPath, storeId });
-    const blob = blobs.find((b) => b.pathname === blobPath);
-    if (!blob) return fallback;
-    const res = await fetch(blob.url, { cache: "no-store" });
-    if (!res.ok) return fallback;
-    return res.json() as Promise<T>;
+  async function readRaw(): Promise<T> {
+    const { BlobNotFoundError, head } = await import("@vercel/blob");
+    try {
+      const blob = await head(blobPath, { storeId });
+      const url = new URL(blob.url);
+      url.searchParams.set("v", blob.etag);
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) {
+        throw new Error(`Failed to read ${blobPath}: ${res.status}`);
+      }
+      return res.json() as Promise<T>;
+    } catch (error) {
+      if (error instanceof BlobNotFoundError) return fallback;
+      throw error;
+    }
   }
+
+  const read = unstable_cache(readRaw, ["blob-json", blobPath], {
+    tags: [cacheTag],
+    revalidate: 86400,
+  });
 
   async function write(value: T): Promise<void> {
     const { put } = await import("@vercel/blob");
@@ -32,6 +46,7 @@ function createBlobStore<T>(fileName: string, fallback: T): JsonStore<T> {
       allowOverwrite: true,
       storeId,
     });
+    revalidateTag(cacheTag, { expire: 0 });
   }
 
   return {
