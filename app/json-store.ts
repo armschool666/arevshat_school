@@ -33,10 +33,19 @@ function createBlobStore<T>(fileName: string, fallback: T): JsonStore<T> {
     }
   }
 
-  const read = unstable_cache(readRaw, ["blob-json", blobPath], {
+  const readCached = unstable_cache(readRaw, ["blob-json", blobPath], {
     tags: [cacheTag],
     revalidate: 86400,
   });
+
+  async function readSafe(): Promise<T> {
+    try {
+      return await readCached();
+    } catch (error) {
+      console.error(`Failed to read ${blobPath}; using the local fallback.`, error);
+      return fallback;
+    }
+  }
 
   async function write(value: T): Promise<void> {
     const { put } = await import("@vercel/blob");
@@ -50,10 +59,11 @@ function createBlobStore<T>(fileName: string, fallback: T): JsonStore<T> {
   }
 
   return {
-    read,
+    read: readSafe,
     write,
     update: async (mutator) => {
-      const current = await read();
+      // Never overwrite live data with an empty fallback during a Blob outage.
+      const current = await readRaw();
       const next = await mutator(current);
       await write(next);
       return next;
