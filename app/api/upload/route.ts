@@ -2,6 +2,7 @@ import { mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "../auth-check";
+import { getContentBucket } from "../../cloudflare-r2";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -82,6 +83,19 @@ export async function POST(request: NextRequest) {
 
   const fileName = safeFileName(file.name);
 
+  const bucket = getContentBucket();
+  if (bucket) {
+    const objectKey = `uploads/${fileName}`;
+    await bucket.put(objectKey, buffer, {
+      httpMetadata: { contentType: file.type || "application/octet-stream" },
+    });
+    return NextResponse.json({
+      name: file.name,
+      href: `/api/files/${objectKey}`,
+      size: file.size,
+    });
+  }
+
   if (process.env.BLOB_AREVSHAT_STORE_ID) {
     const { put } = await import("@vercel/blob");
     const blob = await put(`uploads/${fileName}`, buffer, {
@@ -111,6 +125,21 @@ export async function DELETE(request: NextRequest) {
   const href = request.nextUrl.searchParams.get("href");
   if (!href) {
     return NextResponse.json({ error: "Invalid href" }, { status: 400 });
+  }
+
+  const bucket = getContentBucket();
+  if (bucket) {
+    const pathname = new URL(href, request.url).pathname;
+    const routePrefix = "/api/files/";
+    if (!pathname.startsWith(`${routePrefix}uploads/`)) {
+      return NextResponse.json({ error: "Invalid href" }, { status: 400 });
+    }
+    const objectKey = decodeURIComponent(pathname.slice(routePrefix.length));
+    if (objectKey.includes("..")) {
+      return NextResponse.json({ error: "Invalid href" }, { status: 400 });
+    }
+    await bucket.delete(objectKey);
+    return NextResponse.json({ ok: true });
   }
 
   if (process.env.BLOB_AREVSHAT_STORE_ID) {
