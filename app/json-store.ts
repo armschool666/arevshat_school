@@ -2,11 +2,59 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { revalidateTag, unstable_cache } from "next/cache";
+import { getContentBucket } from "./cloudflare-r2";
 
 export interface JsonStore<T> {
   read(): Promise<T>;
   write(value: T): Promise<void>;
   update(mutator: (current: T) => T | Promise<T>): Promise<T>;
+}
+
+const locks = new Map<string, Promise<unknown>>();
+
+function withLock<T>(key: string, task: () => Promise<T>): Promise<T> {
+  const previous = locks.get(key) ?? Promise.resolve();
+  const next = previous.then(task, task);
+  locks.set(
+    key,
+    next.catch(() => undefined),
+  );
+  return next;
+}
+
+// ---- Cloudflare R2 implementation (production on Workers) -----------
+
+function createR2Store<T>(fileName: string, fallback: T): JsonStore<T> {
+  const objectKey = `data/${fileName}`;
+  const lockKey = `r2:${objectKey}`;
+
+  async function readRaw(): Promise<T> {
+    const bucket = getContentBucket();
+    if (!bucket) throw new Error("MATERIALS_BUCKET is not configured");
+    const object = await bucket.get(objectKey);
+    if (!object) return fallback;
+    return JSON.parse(await object.text()) as T;
+  }
+
+  async function writeRaw(value: T): Promise<void> {
+    const bucket = getContentBucket();
+    if (!bucket) throw new Error("MATERIALS_BUCKET is not configured");
+    await bucket.put(objectKey, JSON.stringify(value, null, 2), {
+      httpMetadata: { contentType: "application/json; charset=utf-8" },
+    });
+  }
+
+  return {
+    read: () => withLock(lockKey, readRaw),
+    write: (value) => withLock(lockKey, () => writeRaw(value)),
+    update: (mutator) =>
+      withLock(lockKey, async () => {
+        const current = await readRaw();
+        const next = await mutator(current);
+        await writeRaw(next);
+        return next;
+      }),
+  };
 }
 
 // ---- Vercel Blob implementation (production) -------------------------
@@ -74,9 +122,7 @@ function createBlobStore<T>(fileName: string, fallback: T): JsonStore<T> {
 // ---- File-based implementation (local dev) ----------------------------
 
 const dataDir = path.join(process.cwd(), "data");
-const locks = new Map<string, Promise<unknown>>();
-
-function withLock<T>(filePath: string, task: () => Promise<T>): Promise<T> {
+function withFileLock<T>(filePath: string, task: () => Promise<T>): Promise<T> {
   const previous = locks.get(filePath) ?? Promise.resolve();
   const next = previous.then(task, task);
   locks.set(
@@ -110,10 +156,10 @@ function createFileStore<T>(fileName: string, fallback: T): JsonStore<T> {
   }
 
   return {
-    read: () => withLock(filePath, readRaw),
-    write: (value) => withLock(filePath, () => writeRaw(value)),
+    read: () => withFileLock(filePath, readRaw),
+    write: (value) => withFileLock(filePath, () => writeRaw(value)),
     update: (mutator) =>
-      withLock(filePath, async () => {
+      withFileLock(filePath, async () => {
         const current = await readRaw();
         const next = await mutator(current);
         await writeRaw(next);
@@ -125,8 +171,15 @@ function createFileStore<T>(fileName: string, fallback: T): JsonStore<T> {
 // ---- Public API -------------------------------------------------------
 
 export function createJsonStore<T>(fileName: string, fallback: T): JsonStore<T> {
-  if (process.env.BLOB_AREVSHAT_STORE_ID) {
-    return createBlobStore<T>(fileName, fallback);
-  }
-  return createFileStore<T>(fileName, fallback);
+  const r2Store = createR2Store(fileName, fallback);
+  const fallbackStore = process.env.BLOB_AREVSHAT_STORE_ID
+    ? createBlobStore<T>(fileName, fallback)
+    : createFileStore<T>(fileName, fallback);
+
+  const selectStore = () => (getContentBucket() ? r2Store : fallbackStore);
+  return {
+    read: () => selectStore().read(),
+    write: (value) => selectStore().write(value),
+    update: (mutator) => selectStore().update(mutator),
+  };
 }
